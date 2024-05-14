@@ -4,6 +4,9 @@
 #include <unistd.h>
 #include <string.h>
 
+#define num_filosofi 5
+#define STARVATION_TIMEOUT 3 // Tempo in secondi prima che un filosofo vada in starvation
+
 // Flag per segnalare se l'applicazione deve terminare
 int termina = 0;
 
@@ -35,8 +38,13 @@ int main(int argc, char *argv[]) {
     int evita_stallo_ma_non_stavation = 0; // Flag per l'opzione 'a'
     int evita_stallo_e_evita_stavation = 0; // Flag per l'opzione 'b'
 
+    char stallo_sem_name[30];
+    char starvation_sem_name[30];
+    char forks_sem_name[30];
+
     // Esegui il programma
     while (!termina) {
+        
 
 
 
@@ -73,6 +81,28 @@ else { // Se sono presenti argomenti sulla riga di comando
     }
     if (evita_stallo_e_evita_stavation) {
         printf("Opzione 'evita lo stallo e rileva starvation' abilitata.\n");
+        // Se il flag per la starvation è attivo, controlla se un filosofo è in starvation
+        check_starvation(num_filosofi);
+        // Se un filosofo è in starvation, termina il programma
+        printf("Programma terminato a c   ausa della starvation di un filosofo\n");
+        
+
+        // Attendere la terminazione dei filosofi
+        for (int i = 0; i < num_filosofi; i++) {
+            wait(NULL);
+        }
+
+        // Chiudi i semafori
+        sem_unlink(stallo_sem_name);
+        sem_unlink(starvation_sem_name);
+        for (int i = 0; i < num_filosofi; i++) {
+            sprintf(forks_sem_name, "/fork_sem_%d_%d", getpid(), i);
+            sem_unlink(forks_sem_name);
+        }
+
+        pthread_join(tid, NULL);
+
+        return 0;
     }
 	
         printf("Lavoro in corso...\n");

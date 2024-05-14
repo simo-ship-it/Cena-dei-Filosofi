@@ -1,8 +1,13 @@
 #!/bin/bash
 
+# quando si avvia il file cenadeifilosofis.sh va specificato il flag 
+# "a" per avviare il rilevamento dello stallo
+# "b" per evitare lo stallo ma non rilevare starvation
+# "c" per evitare lo stallo e rilevare starvation
+
 echo -e "\n\n\033[92mCompilazione Parent\033[0m\n"
 
-#!/bin/bash
+
 
 # Verifica se è stato fornito almeno un argomento
 if [ $# -eq 0 ]; then
