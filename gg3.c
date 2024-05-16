@@ -44,6 +44,7 @@ void filosofo(int id_filosofo, int num_filosofi) {
         // Inverti l'ordine delle forchette per l'ultimo filosofo
         forchetta_sinistra = num_filosofi - 1;
         forchetta_destra = id_filosofo;
+        printf ("Il filosofo %d ha invertito l'ordine delle forchette.\n", id_filosofo);
     }
 
     while (!stop_execution) {
@@ -130,3 +131,6 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
+
+
+

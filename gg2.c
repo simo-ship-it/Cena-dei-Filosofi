@@ -216,6 +216,7 @@ int main(int argc, char *argv[]) {
         check_starvation(num_filosofi);
         // Se un filosofo è in starvation, termina il programma
         printf("Programma terminato a causa della starvation di un filosofo\n");
+        // exit(0);
 
         // Attendere la terminazione dei filosofi
         for (int i = 0; i < num_filosofi; i++) {
