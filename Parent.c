@@ -45,13 +45,19 @@ void clean_exit() {
     // Chiudere file descriptor aperti, liberare memoria allocata, ecc.
     // Chiudi i semafori
     sem_unlink(stallo_sem_name);
+    printf("Semaforo %s rimosso\n", stallo_sem_name);
+    printf("1\n");
     sem_unlink(starvation_sem_name);
+    printf("2\n");
+    printf("Semaforo %s rimosso\n", starvation_sem_name);
     for (int i = 0; i < num_filo; i++) {
         sprintf(forks_sem_name, "/fork_sem_%d_%d", getpid(), i);
         sem_unlink(forks_sem_name);
         printf("Semaforo %s rimosso\n", forks_sem_name);
+        
     }
-    
+
+
     // Notifica all'utente che l'applicazione sta terminando
     printf("L'applicazione sta terminando...\n");
 
@@ -62,7 +68,7 @@ void clean_exit() {
 // Funzione per gestire il segnale SIGINT (Ctrl+C)
 void sigint_handler(int sig) {
     printf("\nRicevuto SIGINT. Terminazione dell'applicazione.\n");
-    printf("prova\n");
+
     clean_exit();
     // exit(0);
     termina = 1; // Imposta il flag di terminazione
@@ -76,6 +82,7 @@ void check_starvation(int num_filosofi) {
             printf("Filosofo %d è in starvation\n", i);
             sem_post(starvation_sem); // Sveglia il processo principale per terminare il programma
             printf("il semaforo starvation_sem è stato sbloccato\n");
+            clean_exit();   
             return;
         }
     }
@@ -91,16 +98,31 @@ void filosofo(int id) {
         usleep(100000); // Simula il pensiero per 0.1 secondi
 
         // Controlla se è il filosofo destinato ad andare in starvation
-        if (id == 0 && starvation_attivo) {
-            printf("Filosofo %d: In attesa di starvation\n", id);
-            sem_wait(starvation_sem); // Attende la starvation
-            return;
+        if (starvation_attivo) {
+            check_starvation(id);
         }
+
 
         // Prende la forchetta a sinistra
         sem_wait(forks[sinistra]);
         printf("Filosofo %d: Prende la forchetta sinistra (%d)\n", id, sinistra);
 
+        // Controllo dello stato di stallo se il primo flag è attivo
+        if (stallo_attivo && id == num_filo - 1) {
+            // Se tutti i filosofi hanno preso la forchetta sinistra, verifichiamo lo stato di stallo
+            int stato_di_stallo = 1;
+            for (int i = 0; i < num_filo; i++) {
+                if (sem_trywait(&forks[sinistra]) == 0) {
+                    sem_post(&forks[sinistra]); // Rilascia la forchetta
+                    stato_di_stallo = 0;
+                    break;
+                }
+            }
+            if (stato_di_stallo) {
+                printf("Stato di stallo rilevato! Il filosofo %d termina il programma.\n", id);
+                exit(EXIT_SUCCESS);
+            }
+        }
         // Prende la forchetta a destra
         sem_wait(forks[destra]);
         printf("Filosofo %d: Prende la forchetta destra (%d)\n", id, destra);
@@ -120,8 +142,8 @@ void filosofo(int id) {
         printf("Filosofo %d: Rilascia la forchetta destra (%d)\n", id, destra);
 
         // Introduce un ritardo casuale prima della prossima azione
-        // int tempo_di_attesa = rand() % 1000000; // Ritardo casuale fino a 1 secondo
-        int tempo_di_attesa = 1000000; // Ritardo casuale fino a 1 secondo
+        int tempo_di_attesa = rand() % 1000000; // Ritardo casuale fino a 1 secondo
+        // int tempo_di_attesa = 1000000; // Ritardo casuale fino a 1 secondo
         usleep(tempo_di_attesa);
     }
 }
@@ -170,20 +192,24 @@ int main(int argc, char *argv[]) {
 
 
 
-    if (argc > 2 || strlen(argv[1]) > 2) { // Se sono presenti argomenti sulla riga di comando o La parola inserita è più lunga di due caratteri
+    if (argc != 2 || strlen(argv[1]) != 2) { // Se sono presenti argomenti sulla riga di comando o La parola inserita è più lunga di due caratteri
         printf("inserisci un singolo flag tra: \n -a per la stavation \n -b per evitare lo stallo ma non rilevare la starvation \n -c per evitare lo stallo e rilevare la starvation");
+        exit(0);
     }
     else { // Se sono presenti argomenti sulla riga di comando
             if (argv[1][0] == '-') { // Se l'argomento inizia con un trattino
                 switch (argv[1][1]) { // Controlla il carattere dopo il trattino
                     case 'a':
                         stallo_attivo = 1; // solo rilevamento dello stallo 
+                        printf("stallo_attivo: %d\n", stallo_attivo);
                         break;
                     case 'b':
                         soluzione_stallo_attiva = 1; // evita lo stallo ma non rileva starvation
+                        printf("soluzione_stallo_attiva: %d\n", soluzione_stallo_attiva);
                         break;
                     case 'c':
-                        starvation_attivo = 0;; // evita lo stallo e rileva starvation
+                        starvation_attivo = 1;; // evita lo stallo e rileva starvation
+                        printf("starvation_attivo: %d\n", starvation_attivo);
                         break;
                     default:
                         printf("Opzione non riconosciuta: %s\n", argv[1]);
@@ -196,14 +222,12 @@ int main(int argc, char *argv[]) {
 
 
     sprintf(stallo_sem_name, "/stallo_sem_%d", getpid());
-    printf("il nome del semaforo stallo_sem_name: %s\n", stallo_sem_name);
-
     sprintf(starvation_sem_name, "/starvation_sem_%d", getpid());
-        printf("starvation_sem_name: %s\n", starvation_sem_name);
     // Rimuove il semaforo stallo_sem se presente
 
     sem_unlink(stallo_sem_name);
     printf("stallo_sem_name: %s\n", stallo_sem_name);
+    printf("1\n");
 
     // Rimuove il semaforo starvation_sem se presente
     sem_unlink(starvation_sem_name);
@@ -248,7 +272,9 @@ int main(int argc, char *argv[]) {
     // Crea i processi filosofi
     pid_t pid;
     for (int i = 0; i < num_filo; i++) {
+        printf("il pid è: %d\n", pid);
         pid = fork();
+        
         if (pid == 0) { // processo figlio (filosofo)
             filosofo(i);
             exit(0);
@@ -258,58 +284,9 @@ int main(int argc, char *argv[]) {
     // Introduce ritardo per far andare in starvation almeno un filosofo
     sleep(STARVATION_TIMEOUT + 1);
 
-    // Esempio di utilizzo delle opzioni
-    if (stallo_attivo) {
-        printf("Opzione 'rileva stallo' abilitata.\n");
-    }
-    if (soluzione_stallo_attiva) {
-        printf("Opzione 'evita lo stallo ma non rileva starvation' abilitata.\n");
-    }
-    if (starvation_attivo) {
-        printf("Opzione 'evita lo stallo e rileva starvation' abilitata.\n");
-        // Se il flag per la starvation è attivo, controlla se un filosofo è in starvation
-        check_starvation(num_filo);
-        // Se un filosofo è in starvation, termina il programma
-        printf("Programma terminato a causa della starvation di un filosofo\n");
-        
-
-        // Attendere la terminazione dei filosofi
-        for (int i = 0; i < num_filo; i++) {
-            wait(NULL);
-        }
-
-        // Chiudi i semafori
-        sem_unlink(stallo_sem_name);
-        sem_unlink(starvation_sem_name);
-        for (int i = 0; i < num_filo; i++) {
-            sprintf(forks_sem_name, "/fork_sem_%d_%d", getpid(), i);
-            sem_unlink(forks_sem_name);
-        }
-
-        pthread_join(tid, NULL);
-
-        
-
-        return 0;
-    }
 	
-        printf("Lavoro in corso...\n");
-        // sleep(3); // Simula l'attesa di qualche secondo
-    // }
+    printf("Lavoro in corso...\n");
 
-    //     // Attendere la terminazione dei filosofi
-    // for (int i = 0; i < num_filo; i++) {
-    //     wait(NULL);
-    // }
-
-    // // Chiudi i semafori
-    // sem_unlink(stallo_sem_name);
-    // sem_unlink(starvation_sem_name);
-    // for (int i = 0; i < num_filo; i++) {
-    //     sprintf(forks_sem_name, "/fork_sem_%d_%d", getpid(), i);
-    //     sem_unlink(forks_sem_name);
-    //     printf("Semaforo %s rimosso\n", forks_sem_name);
-    // }
 
     pthread_join(tid, NULL);
 

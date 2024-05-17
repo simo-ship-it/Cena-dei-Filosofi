@@ -4,7 +4,7 @@
 # "a" per avviare il rilevamento dello stallo
 # "b" per evitare lo stallo ma non rilevare starvation
 # "c" per evitare lo stallo e rilevare starvation
-
+clear
 echo -e "\n\n\033[92mCompilazione Parent\033[0m\n"
 
 
