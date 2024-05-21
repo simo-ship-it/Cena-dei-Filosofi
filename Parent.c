@@ -10,7 +10,8 @@
 #include <time.h>
 #include <signal.h>
 #include <pthread.h>
-
+#include <sys/mman.h>
+#include <fcntl.h>
 
 #define num_filo 5
 #define NUM_FILOSOFI_MAX 100
@@ -28,7 +29,9 @@ pid_t pid_padre;
 
 char forks_sem_name[30];
 
-int termina = 0;
+int *termina; // Variabile condivisa
+
+// int termina = 0;
 // Flag per segnalare se l'applicazione deve terminare
 
 
@@ -44,6 +47,9 @@ FilosofoInfo filosofi_info[NUM_FILOSOFI_MAX];
 // Funzione per la terminazione pulita dell'applicazione
 void clean_exit()
 {
+
+
+
     // printf("Terminazione dell'applicazione.\n");
     // Qui liberare eventuali risorse allocate
     // Chiudere file descriptor aperti, liberare memoria allocata, ecc.
@@ -83,6 +89,10 @@ void clean_exit()
 
     // Notifica all'utente che l'applicazione sta terminando
     // printf("L'applicazione sta terminando...\n");
+
+    // Chiudi e rimuovi la memoria condivisa
+    munmap(termina, sizeof(int));
+    shm_unlink("/termina_shm");
 
     // Termina il processo corrente
     sleep(1);
@@ -133,16 +143,17 @@ void check_starvation(int id)
 {
 
     time_t current_time = time(NULL);
-    printf(" il filosofo %ld ha mangiato %d secondi fa\n", id, current_time - filosofi_info[id].last_meal_time);
+    printf(" il filosofo %d ha mangiato %ld secondi fa\n", id, current_time - filosofi_info[id].last_meal_time);
     // printf("il tempo attuale è %ld\n", current_time);
     // printf("il tempo dell'ultimo pasto è %ld\n", filosofi_info[id].last_meal_time);
 
     if ((current_time - filosofi_info[id].last_meal_time) > STARVATION_TIMEOUT)
     {
         printf("Filosofo %d è in starvation\n", id);
+        *termina = num_filo; // Segnala ai processi figli di terminare
         // termina=1;
         // segnale_ricevuto = 1;
-        clean_exit();
+        // clean_exit();
         return;
     }
     // Nessun filosofo è in starvation
@@ -150,6 +161,7 @@ void check_starvation(int id)
 
 void filosofo(int id)
 {
+
 
     int sinistra = id;
     int destra = (id + 1) % NUM_FILOSOFI_MAX;
@@ -161,15 +173,18 @@ void filosofo(int id)
     // Aggiorna il tempo dell'ultimo pasto del filosofo
     filosofi_info[id].last_meal_time = time(NULL);
 
+
     // printf("sini: %d, destra: %d\n", sinistra, destra);
-    while (!segnale_ricevuto)
+    while (!segnale_ricevuto && *termina==-1)
     {
-        if (termina==1){
-            printf("termino il filosofo %d\n", id);
-            exit(0);
-        }
+        // if (termina==1){
+        //     printf("termino il filosofo %d\n", id);
+        //     exit(0);
+        // }
         printf("Filosofo %d: Pensa\n", id);
         usleep(100000); // Simula il pensiero per 0.1 secondi
+
+ 
 
         // Controlla se c'è uno stallo
         if (stallo_attivo)
@@ -238,7 +253,7 @@ void filosofo(int id)
             sem_wait(forks[sinistra]);
             printf("Filosofo %d: Prende la forchetta sinistra (%d)\n", id, sinistra);
 
-            sleep(3); // attende 3 secondi
+            sleep(1); // attende 3 secondi
 
             // Prende la forchetta a destra
             sem_wait(forks[destra]);
@@ -253,7 +268,7 @@ void filosofo(int id)
 
             // Mangia
             printf("Filosofo %d: Mangia\n", id);
-            sleep(3); // Simula il pasto (3 secondi
+            sleep(1); // Simula il pasto (3 secondi
 
             // Aggiorna il tempo dell'ultimo pasto del filosofo
             filosofi_info[id].last_meal_time = time(NULL);
@@ -273,11 +288,25 @@ void filosofo(int id)
         // int tempo_di_attesa = 1000000; // Ritardo casuale fino a 1 secondo
         usleep(tempo_di_attesa);
     }
+
+
+    printf("\n");
+    printf("termino il filosofo %d\n", id);
+    *termina = *termina-1;
+    exit(0);   
 }
 
 
 int main(int argc, char *argv[])
 {
+
+
+    // Inizializza la memoria condivisa
+    int shm_fd = shm_open("/termina_shm", O_CREAT | O_RDWR, 0666);
+    ftruncate(shm_fd, sizeof(int));
+    termina = mmap(0, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    *termina = -1;
+
 
     // // Inizializza l'array dei PID dei processi figli
     // for (int i = 0; i < NUM_FILOSOFI_MAX; i++) {
@@ -290,6 +319,9 @@ int main(int argc, char *argv[])
     
     // Installa il gestore per SIGINT
     signal(SIGINT, sigint_handler);
+
+
+
 
     // int stallo = 0; // Flag per l'opzione 'a'
     // int evita_stallo_ma_non_stavation = 0; // Flag per l'opzione 'a'
@@ -394,11 +426,21 @@ int main(int argc, char *argv[])
     // sleep(STARVATION_TIMEOUT + 1);
 
     // printf("Lavoro in corso...\n");
-
+    while (*termina!=0)
+    {
+        printf("ciao\n");
+        printf("termina: %d\n", *termina);
+        sleep(1);
+    }
+    
+    printf("lk\n");
+    clean_exit();
     pthread_join(tid, NULL);
 
     // Termina l'applicazione in modo pulito
-    clean_exit();
+
+    
+    
 
     return 0; // Non raggiunto poiché clean_exit() termina il programma
 }
