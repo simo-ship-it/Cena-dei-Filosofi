@@ -26,8 +26,9 @@ int soluzione_stallo_attiva = 0;
 int starvation_attivo = 0;
 volatile sig_atomic_t segnale_ricevuto = 0;
 
-sem_t *sem_shared_memory; // Semaforo per la memoria condivisa
-sem_t *forks[NUM_FILOSOFI_MAX];
+sem_t *sem_shared_memory; // Semaforo utilizzato per far si che i processi non accedano e scrivano contemporaneamente nella memoria condivisa
+sem_t *sem_chiusura_padre; // Semaforo utilizzato per far si che il padre termini solo dopo che l'ultimo figlio ha terminato
+sem_t *forks[NUM_FILOSOFI_MAX]; // Semafori per le forchette
 
 pid_t pid_padre;
 
@@ -53,52 +54,57 @@ void clean_exit()
     if (getpid() != pid_padre)
     {
 
-        sem_wait(sem_shared_memory); // Acquisire il semafor
+        sem_wait(sem_shared_memory); // Acquisire il semaforo per accedere alla memoria condivisa
         *numero_processi_attivi = *numero_processi_attivi - 1; // Decrementa il numero di processi attivi
         printf("\n");
-        printf("termino il processo figlio %d\n", getpid());
-        printf("il numero di processi attivi è: %d\n", *numero_processi_attivi + 1);
+        printf("termino il processo figlio %d\n", getpid()); // Stampa il PID del processo figlio che termina
+        printf("il numero di processi attivi è: %d\n", *numero_processi_attivi + 1); // Stampa il numero di processi attivi dopo la terminazione del processo figlio nella riga precedente
         sem_post(sem_shared_memory); // Rilasciare il semaforo
+
+        if (*numero_processi_attivi == 0) // Nel caso in cui sia stato appena terminato l'ultimo processo figlio
+        {
+            sem_post(sem_chiusura_padre); // incremeta il semaforo per far terminare il processo padre
+        }
         exit(0);
     }
 
-    while (1)
-    {
-
-        if (*numero_processi_attivi == 0)
-        { // fino a che ci sono processi attivi non posso chiudere il processo padre
-
-            // posso terminare il processo padre che deve essere lultimo a chiudersi
-
-            // Chiudi i semafori forks
-            for (int i = 0; i < num_filo; i++)
-            {
-                sprintf(forks_sem_name, "/fork_sem_%d_%d", getpid(), i);
-                sem_unlink(forks_sem_name);
-                // printf("Semaforo %s rimosso\n", forks_sem_name);
-            }
 
 
-            // Chiudi e rimuovi la memoria condivisa
-            munmap(termina, sizeof(int));
-            shm_unlink("/termina_shm");
+    sem_wait(sem_chiusura_padre); // Attendi che tutti i processi figli abbiano terminato
 
-            munmap(numero_processi_attivi, sizeof(int));
-            shm_unlink("/num_proc_attivi_shm");
+     // fino a che ci sono processi attivi non posso chiudere il processo padre
 
-            // Chiudi il thread tid
-            pthread_cancel(tid);
-
-            sem_unlink("/sem_shared_data"); // Chiudi il semaforo della memoria condivisa 
-
-            // Termina il processo corrente
-            printf("\n");
-            printf("termino il processo padre %d\n\n\n", getpid());
-            exit(EXIT_SUCCESS);
+        // Chiudi i semafori forks
+        for (int i = 0; i < num_filo; i++)
+        {
+            sprintf(forks_sem_name, "/fork_sem_%d_%d", getpid(), i);
+            sem_unlink(forks_sem_name);
+            // printf("Semaforo %s rimosso\n", forks_sem_name);
         }
-        usleep(100000); // Ritardo di 0.1 secondi prima di riprovare a chiudere il processo padre
-    }
+
+
+        // Chiudi e rimuovi la memoria condivisa
+        munmap(termina, sizeof(int));
+        shm_unlink("/termina_shm");
+
+        munmap(numero_processi_attivi, sizeof(int));
+        shm_unlink("/num_proc_attivi_shm");
+
+        // Chiudi il thread tid
+        pthread_cancel(tid);
+
+        sem_unlink("/sem_shared_data"); // Chiudi il semaforo della memoria condivisa 
+
+        sem_unlink("/sem_chiusura_processo_padre"); // Chiudi il semaforo relativo alla chiusura del processo padre
+
+        // Termina il processo corrente
+        printf("\n");
+        printf("termino il processo padre %d\n\n\n", getpid());
+        usleep(100000); // Ritardo di 0.1 secondi prima di terminare il processo padre
+        exit(EXIT_SUCCESS);
+
 }
+
 
 // Funzione per gestire il segnale SIGINT (Ctrl+C)
 void sigint_handler(int sig)
@@ -365,6 +371,17 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
+    // Inizializzare il semaforo della memoria condivisa
+
+    sem_unlink("/sem_chiusura_processo_padre");
+
+    sem_chiusura_padre = sem_open("/sem_chiusura_processo_padre", O_CREAT | O_EXCL, 0644, 0); // Inizializza il semaforo con valore 0 cosi che il processo padre aspetti che tutti i figli abbiano terminato
+    if (sem_shared_memory == SEM_FAILED) {
+        printf("Errore nell'inizializzazione del semaforo padre\n");
+        perror("sem_open");
+        exit(EXIT_FAILURE);
+    }
+
 
     // Inizializza le informazioni dei filosofi
     for (int i = 0; i < num_filo; i++)
@@ -397,11 +414,13 @@ int main(int argc, char *argv[])
     }
 
 
-    while (*termina == 0) // fino a che sono presenti processi figli il processo padre resta attivo in attesa
-    {
-        sleep(1);
-    }
+    // while (*termina == 0) // fino a che sono presenti processi figli il processo padre resta attivo in attesa
+    // {
+    //     sleep(1);
+    // }
 
+    sem_wait(sem_chiusura_padre); // Attendi che tutti i processi figli abbiano terminato
+    sem_post(sem_chiusura_padre); // incremeta il semaforo per far terminare il processo padre
 
     clean_exit();// chiamo la funzione clean_exit() per la terminazione pulita dell'applicazione
 
