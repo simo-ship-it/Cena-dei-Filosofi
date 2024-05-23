@@ -17,7 +17,7 @@
 #define NUM_FILOSOFI_MAX 100
 #define STARVATION_TIMEOUT 3 // Tempo in secondi prima che un filosofo vada in starvation
 
-sem_t *forks[NUM_FILOSOFI_MAX];
+sem_t *forks[num_filo];
 
 pthread_t tid;
 
@@ -27,6 +27,9 @@ int starvation_attivo = 0;
 volatile sig_atomic_t segnale_ricevuto = 0;
 
 // pid_t child_pids[NUM_FILOSOFI_MAX];
+
+sem_t *sem_shared_memory; // Semaforo per la memoria condivisa
+
 pid_t pid_padre;
 
 char forks_sem_name[30];
@@ -50,9 +53,13 @@ void clean_exit()
 
     if (getpid() != pid_padre)
     {
+
+        sem_wait(sem_shared_memory); // Acquisire il semafor
         *numero_processi_attivi = *numero_processi_attivi - 1; // Decrementa il numero di processi attivi
-        printf("il numero di processi attivi è: %d\n", *numero_processi_attivi);
+        printf("\n");
         printf("termino il processo figlio %d\n", getpid());
+        printf("il numero di processi attivi è: %d\n", *numero_processi_attivi + 1);
+        sem_post(sem_shared_memory); // Rilasciare il semaforo
         exit(0);
     }
 
@@ -64,7 +71,7 @@ void clean_exit()
 
             // posso terminare il processo padre che deve essere lultimo a chiudersi
 
-            // Chiudi i semafori
+            // Chiudi i semafori forks
             for (int i = 0; i < num_filo; i++)
             {
                 sprintf(forks_sem_name, "/fork_sem_%d_%d", getpid(), i);
@@ -72,19 +79,23 @@ void clean_exit()
                 // printf("Semaforo %s rimosso\n", forks_sem_name);
             }
 
+
             // Chiudi e rimuovi la memoria condivisa
             munmap(termina, sizeof(int));
             shm_unlink("/termina_shm");
 
             munmap(numero_processi_attivi, sizeof(int));
-            shm_unlink("//num_proc_attivi_shm");
+            shm_unlink("/num_proc_attivi_shm");
 
             // Chiudi il thread tid
             pthread_cancel(tid);
 
+            sem_unlink("/sem_shared_data"); // Chiudi il semaforo della memoria condivisa 
+
             // Termina il processo corrente
-            sleep(1);
-            printf("termino il processo padre %d\n", getpid());
+            // sleep(1);
+            printf("\n");
+            printf("termino il processo padre %d\n\n\n", getpid());
             exit(EXIT_SUCCESS);
         }
         usleep(100000); // Ritardo di 0.1 secondi prima di riprovare a chiudere il processo padre
@@ -94,7 +105,7 @@ void clean_exit()
 // Funzione per gestire il segnale SIGINT (Ctrl+C)
 void sigint_handler(int sig)
 {
-    printf("\nRicevuto SIGINT. Terminazione dell'applicazione.\n");
+    // printf("\nRicevuto SIGINT. Terminazione dell'applicazione.\n");
     clean_exit(); // chiamo la funzione clean_exit() per la terminazione pulita dell'applicazione
 }
 
@@ -125,8 +136,10 @@ void check_starvation(int id)
     time_t current_time = time(NULL);
     if ((current_time - filosofi_info[id].last_meal_time) > STARVATION_TIMEOUT)
     {
-        printf("Filosofo %d è in starvation\n", id);
-        *termina = 1; // Segnala ai processi figli di terminare
+        if (*termina == 0){ // Se non è già stata rilevata la starvation per un altro filosofo scrive il filosofo in starvation e imposta la variabile termina a 1
+            printf("Filosofo %d è in starvation\n", id);        
+            *termina = 1; // Segnala ai processi figli di terminare
+        }
         return;
     }
     // Nessun filosofo è in starvation
@@ -157,23 +170,32 @@ void filosofo(int id) // Funzione per il comportamento di un filosofo
 
             // Prende la forchetta a destra
             sem_wait(forks[destra]);
-            printf("Filosofo %d: Prende la forchetta destra (%d)\n", id, destra);
+
+            if (*termina == 0){
+                printf("Filosofo %d: Prende la forchetta destra (%d)\n", id, destra);
+            }
 
             sleep(1); // attende un secondo
 
             // Prende la forchetta a sinistra
             sem_wait(forks[sinistra]);
-            printf("Filosofo %d: Prende la forchetta sinistra (%d)\n", id, sinistra);
 
+            if (*termina == 0){
+                printf("Filosofo %d: Prende la forchetta sinistra (%d)\n", id, sinistra);
+            }
             
         }
         else
         { // se non è attiva l'opzione per evitare lo stallo procede normalmente, ovvero ogni filosofo prende prima la forchetta a sinistra e poi quella a destra
             // Prende la forchetta a sinistra
             sem_wait(forks[sinistra]);
-            printf("Filosofo %d: Prende la forchetta sinistra (%d)\n", id, sinistra);
+            if (*termina == 0){
+                printf("Filosofo %d: Prende la forchetta sinistra (%d)\n", id, sinistra);
+            }
 
             sleep(1); // attende un secondo
+
+            
 
             // Controlla se c'è uno stallo
             if (stallo_attivo)
@@ -190,14 +212,18 @@ void filosofo(int id) // Funzione per il comportamento di un filosofo
                 else
                 {
                     // Almeno una delle forchette non è stata acquisita, quindi c'è stallo
-                    printf("Filosofo %d è in stallo\n", id);
-                    *termina = 1; // Segnala ai processi figli di terminare
+                    if (*termina == 0){
+                        printf("Filosofo %d è in stallo\n", id);
+                        *termina = 1; // Segnala ai processi figli di terminare
+                    }
                     break;
             }
         }
             // Prende la forchetta a destra
             sem_wait(forks[destra]);
-            printf("Filosofo %d: Prende la forchetta destra (%d)\n", id, destra);
+            if (*termina == 0){
+                printf("Filosofo %d: Prende la forchetta destra (%d)\n", id, destra);
+            }
 
         }
 
@@ -209,20 +235,26 @@ void filosofo(int id) // Funzione per il comportamento di un filosofo
             }
 
             // Mangia
-            printf("Filosofo %d: Mangia\n", id);
+            if (*termina == 0){
+                printf("Filosofo %d: Mangia\n", id);
+            }
             sleep(1); // Simula il pasto un secondo
 
+    
             // Aggiorna il tempo dell'ultimo pasto del filosofo
             filosofi_info[id].last_meal_time = time(NULL);
 
             // Rilascia la forchetta a sinistra
             sem_post(forks[sinistra]);
-            printf("Filosofo %d: Rilascia la forchetta sinistra (%d)\n", id, sinistra);
+            if (*termina == 0){
+                printf("Filosofo %d: Rilascia la forchetta sinistra (%d)\n", id, sinistra);
+            }
 
             // Rilascia la forchetta a destra
             sem_post(forks[destra]);
+            if (*termina == 0){
             printf("Filosofo %d: Rilascia la forchetta destra (%d)\n", id, destra);
-        
+            }
 
         // Introduce un ritardo casuale prima della prossima azione
         int tempo_di_attesa = rand() % 100000; // Ritardo casuale fino a 1 secondo
@@ -299,18 +331,29 @@ int main(int argc, char *argv[])
         sem_unlink(forks_sem_name);
     }
 
-    // Inizializza le forchette
+    // Inizializza i semafori forks per le forchette
     for (int i = 0; i < num_filo; i++)
     {
         sprintf(forks_sem_name, "/fork_sem_%d_%d", getpid(), i);
         forks[i] = sem_open(forks_sem_name, O_CREAT | O_EXCL, 0644, 1);
-        // printf("Semaforo %s creato\n", forks_sem_name);
         if (forks[i] == SEM_FAILED)
         {
             perror("Errore nell'inizializzazione del semaforo forks");
             return 1;
         }
     }
+    
+    // sem_close(sem_shared_memory);
+    sem_unlink("/sem_shared_data");
+
+    // Inizializzare il semaforo della memoria condivisa
+    sem_shared_memory = sem_open("/sem_shared_data", O_CREAT | O_EXCL, 0644, 1);
+    if (sem_shared_memory == SEM_FAILED) {
+        printf("Errore nell'inizializzazione del semaforo della memoria condivisa\n");
+        perror("sem_open");
+        exit(EXIT_FAILURE);
+    }
+
 
     // Inizializza le informazioni dei filosofi
     for (int i = 0; i < num_filo; i++)
@@ -320,7 +363,6 @@ int main(int argc, char *argv[])
     }
 
     pid_padre = getpid(); // Ottenere il PID del processo corrente
-    printf("il pid padre è: %d\n", pid_padre);
 
     // Crea i processi filosofi
     pid_t pid;
@@ -335,7 +377,6 @@ int main(int argc, char *argv[])
         }
         else if (pid > 0) // Processo padre
         {
-            printf("Processo figlio %d creato\n", pid);
         }
         else
         {
