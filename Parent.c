@@ -13,22 +13,21 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 
-#define num_filo 5
-#define NUM_FILOSOFI_MAX 100
-#define STARVATION_TIMEOUT 3 // Tempo in secondi prima che un filosofo vada in starvation
 
-sem_t *forks[num_filo];
+#define NUM_FILOSOFI_MAX 10 // Numero massimo di filosofi
+#define STARVATION_TIMEOUT 5 // Tempo in secondi prima che un filosofo vada in starvation
+
 
 pthread_t tid;
+int num_filo; ;
 
 int stallo_attivo = 0;
 int soluzione_stallo_attiva = 0;
 int starvation_attivo = 0;
 volatile sig_atomic_t segnale_ricevuto = 0;
 
-// pid_t child_pids[NUM_FILOSOFI_MAX];
-
 sem_t *sem_shared_memory; // Semaforo per la memoria condivisa
+sem_t *forks[NUM_FILOSOFI_MAX];
 
 pid_t pid_padre;
 
@@ -93,7 +92,6 @@ void clean_exit()
             sem_unlink("/sem_shared_data"); // Chiudi il semaforo della memoria condivisa 
 
             // Termina il processo corrente
-            // sleep(1);
             printf("\n");
             printf("termino il processo padre %d\n\n\n", getpid());
             exit(EXIT_SUCCESS);
@@ -160,8 +158,6 @@ void filosofo(int id) // Funzione per il comportamento di un filosofo
 
     while (!segnale_ricevuto && *termina == 0) 
     {
-
-
 
 
         if (soluzione_stallo_attiva && id == num_filo - 1)
@@ -269,19 +265,6 @@ void filosofo(int id) // Funzione per il comportamento di un filosofo
 int main(int argc, char *argv[])
 {
 
-    // Inizializza la memoria condivisa
-    int shm_fd = shm_open("/termina_shm", O_CREAT | O_RDWR, 0666);
-    ftruncate(shm_fd, sizeof(int));
-    termina = mmap(0, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    *termina = 0;
-
-    // Inizializza la memoria condivisa per "numero_processi_attivi"
-    int shm_fd_numero_processi_attivi = shm_open("/num_proc_attivi_shm", O_CREAT | O_RDWR, 0666);
-    ftruncate(shm_fd_numero_processi_attivi, sizeof(int));
-    numero_processi_attivi = mmap(0, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_numero_processi_attivi, 0);
-    *numero_processi_attivi = num_filo; // Inizializziamo il numero di processi attivi a 0
-
-
     // Crea il thread per gestire i segnali
     pthread_create(&tid, NULL, signal_thread, NULL);
 
@@ -289,7 +272,7 @@ int main(int argc, char *argv[])
     signal(SIGINT, sigint_handler);
 
 
-    if (argc > 2 || strlen(argv[1]) > 2)
+    if (argc > 3 || strlen(argv[1]) > 2 )
     { // Se sono presenti argomenti sulla riga di comando o La parola inserita è più lunga di due caratteri
         printf("inserisci un singolo flag tra: \n -a per la stavation \n -b per evitare lo stallo ma non rilevare la starvation \n -c per evitare lo stallo e rilevare la starvation \n -n per non attivare nessuna delle modalità precedenti\n ");
         exit(0);
@@ -322,7 +305,35 @@ int main(int argc, char *argv[])
                 break;
             }
         }
+
+            char *endptr;
+            int filo_selezionati = strtol(argv[2], &endptr, 10);
+            printf("numero di filosofi selezionati: %d\n", filo_selezionati);
+
+            if (filo_selezionati > 2 && filo_selezionati <= NUM_FILOSOFI_MAX)
+            {
+                num_filo = filo_selezionati;
+            }
+            else
+            {
+                printf("Numero di filosofi non valido. Inserire un numero compreso tra 3 e %d\n", NUM_FILOSOFI_MAX);
+                exit(0);
+            }
     }
+
+
+    // Inizializza la memoria condivisa
+    int shm_fd = shm_open("/termina_shm", O_CREAT | O_RDWR, 0666);
+    ftruncate(shm_fd, sizeof(int));
+    termina = mmap(0, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    *termina = 0;
+
+    // Inizializza la memoria condivisa per "numero_processi_attivi"
+    int shm_fd_numero_processi_attivi = shm_open("/num_proc_attivi_shm", O_CREAT | O_RDWR, 0666);
+    ftruncate(shm_fd_numero_processi_attivi, sizeof(int));
+    numero_processi_attivi = mmap(0, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_numero_processi_attivi, 0);
+    *numero_processi_attivi = num_filo; // Inizializziamo il numero di processi attivi a 0
+
 
     // Rimuove i semafori forks se presenti
     for (int i = 0; i < num_filo; i++)
