@@ -15,7 +15,7 @@
 
 #define num_filo 5
 #define NUM_FILOSOFI_MAX 100
-#define STARVATION_TIMEOUT 5 // Tempo in secondi prima che un filosofo vada in starvation
+#define STARVATION_TIMEOUT 3 // Tempo in secondi prima che un filosofo vada in starvation
 
 sem_t *forks[NUM_FILOSOFI_MAX];
 
@@ -30,6 +30,8 @@ pid_t pid_padre;
 char forks_sem_name[30];
 
 int *termina; // Variabile condivisa
+
+int *numero_processi_attivi; // Variabile condivisa per tenere traccia del numero di processi attivi
 
 // int termina = 0;
 // Flag per segnalare se l'applicazione deve terminare
@@ -47,9 +49,6 @@ FilosofoInfo filosofi_info[NUM_FILOSOFI_MAX];
 // Funzione per la terminazione pulita dell'applicazione
 void clean_exit()
 {
-
-
-
     // printf("Terminazione dell'applicazione.\n");
     // Qui liberare eventuali risorse allocate
     // Chiudere file descriptor aperti, liberare memoria allocata, ecc.
@@ -64,9 +63,20 @@ void clean_exit()
         
         if (getpid() != pid_padre)
         {   
+            *numero_processi_attivi = *numero_processi_attivi - 1; // Decrementa il numero di processi attivi
+            printf("il numero di processi attivi è: %d\n", *numero_processi_attivi);
             printf("termino il processo figlio %d\n", getpid());
             exit(0);
         }
+
+        while (1)
+        {
+        
+        if(*numero_processi_attivi==0){
+    //posso terminare il processo padre che deve essere lultimo a chiudersi
+
+
+    printf("il numero di processi attivi è: %d\n", *numero_processi_attivi);    
     // }
 
     // // Attende la terminazione di tutti i processi figli
@@ -94,10 +104,17 @@ void clean_exit()
     munmap(termina, sizeof(int));
     shm_unlink("/termina_shm");
 
+    munmap(numero_processi_attivi, sizeof(int));
+    shm_unlink("//num_proc_attivi_shm");
+
     // Termina il processo corrente
     sleep(1);
     printf("termino il processo padre %d\n", getpid());
     exit(EXIT_SUCCESS);
+        }
+        sleep(0.1);
+        // printf("non riesco a chiudere il processo padre\n");
+}
 }
 
 // Funzione per gestire il segnale SIGINT (Ctrl+C)
@@ -150,7 +167,7 @@ void check_starvation(int id)
     if ((current_time - filosofi_info[id].last_meal_time) > STARVATION_TIMEOUT)
     {
         printf("Filosofo %d è in starvation\n", id);
-        *termina = num_filo; // Segnala ai processi figli di terminare
+        *termina = 1; // Segnala ai processi figli di terminare
         // termina=1;
         // segnale_ricevuto = 1;
         // clean_exit();
@@ -175,7 +192,7 @@ void filosofo(int id)
 
 
     // printf("sini: %d, destra: %d\n", sinistra, destra);
-    while (!segnale_ricevuto && *termina==-1)
+    while (!segnale_ricevuto && *termina==0)
     {
         // if (termina==1){
         //     printf("termino il filosofo %d\n", id);
@@ -290,10 +307,11 @@ void filosofo(int id)
     }
 
 
-    printf("\n");
+    // printf("\n");
     printf("termino il filosofo %d\n", id);
-    *termina = *termina-1;
-    exit(0);   
+    // *numero_processi_attivi = *numero_processi_attivi-1;
+    // exit(0);   
+    clean_exit();
 }
 
 
@@ -305,7 +323,14 @@ int main(int argc, char *argv[])
     int shm_fd = shm_open("/termina_shm", O_CREAT | O_RDWR, 0666);
     ftruncate(shm_fd, sizeof(int));
     termina = mmap(0, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    *termina = -1;
+    *termina = 0;
+
+    // Inizializza la memoria condivisa per "numero_processi_attivi"
+    int shm_fd_numero_processi_attivi = shm_open("/num_proc_attivi_shm", O_CREAT | O_RDWR, 0666);
+    ftruncate(shm_fd_numero_processi_attivi, sizeof(int));
+    numero_processi_attivi = mmap(0, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_numero_processi_attivi, 0);
+    *numero_processi_attivi = num_filo; // Inizializziamo il numero di processi attivi a 0
+
 
 
     // // Inizializza l'array dei PID dei processi figli
@@ -426,10 +451,11 @@ int main(int argc, char *argv[])
     // sleep(STARVATION_TIMEOUT + 1);
 
     // printf("Lavoro in corso...\n");
-    while (*termina!=0)
+    while (*termina==0)
     {
         printf("ciao\n");
         printf("termina: %d\n", *termina);
+        printf("numero_processi_attivi: %d\n", *numero_processi_attivi);
         sleep(1);
     }
     
